@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "lab-3-transactions"
+version = "0.1.0"
+description = "A demonstration of transactions rolling back and restoring"
+authors = ["Grigorii Praskura <gregorypraskura@hotmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.2"
+uvicorn = "^0.27.0.post1"
+asyncpg = "^0.29.0"
+pydantic-settings = "^2.1.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
