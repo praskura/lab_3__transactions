@@ -9,19 +9,27 @@ settings = Settings()
 app = FastAPI()
 
 @app.get("/transact")
-async def transact():
+async def transact(v: int = 0):
     conn = await asyncpg.connect(dsn=settings.database_dsn)
 
-    await conn.execute('''
+    decr_query = '''
         UPDATE public.decreasing
-            SET value=value-1;
-        ''')
+            SET value=value-$1;
+        '''
 
-    await conn.execute('''
+    print(v)
+    await conn.execute(decr_query, v)
+
+    incr_query = '''
         UPDATE public.increasing
-            SET value=value+1;
-        ''')
+            SET value=value+$1;
+        '''
+
+    await conn.execute(incr_query, v)
 
     await conn.close()
 
-    return {"finished": 'ok'}
+    return {
+        "status": "ok",
+        "value": v
+    }
