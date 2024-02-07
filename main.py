@@ -1,5 +1,6 @@
 import os
 import asyncpg
+import time
 from fastapi import FastAPI
 from settings import Settings
 
@@ -17,8 +18,9 @@ async def transact(v: int = 0):
             SET value=value-$1;
         '''
 
-    print(v)
     await conn.execute(decr_query, v)
+
+    time.sleep(5)
 
     incr_query = '''
         UPDATE public.increasing
