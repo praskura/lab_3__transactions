@@ -16,20 +16,27 @@ logging.basicConfig(format='%(asctime)s.%(msecs)03d - %(message)s', datefmt='%d-
 async def lifespan(app: FastAPI):
     if os.path.isfile(settings.transaction_data_file_path):
         logging.info('Previous transaction was broken, restoring...')
-        transaction_data_file = open(settings.transaction_data_file_path)
-        transaction_value = transaction_data_file.read()
-        transaction_data_file.close()
-        logging.info(f'Rolling back: increase the source by {transaction_value}')
+        log_file = open(settings.transaction_data_file_path)
+        log = log_file.read()
+        log_file.close()
+        os.remove(settings.transaction_data_file_path)
+        log_info = log.split(':')
+
+        stage_number = log_info[0]
+        stage_value = log_info[1]
         conn = await asyncpg.connect(dsn=settings.database_dsn)
 
-        rollback_decr_query = '''
-            UPDATE public.decreasing
-                SET value=value+$1;
+        if stage_number == '1':
+            yield
+        if stage_number == '2':
+            restore_incr_query = '''
+            UPDATE public.increasing
+                SET value=$1
             '''
+            await conn.execute(restore_incr_query, int(stage_value))
+            await conn.close()
 
-        await conn.execute(rollback_decr_query, int(transaction_value))
-        await conn.close()
-        logging.info('Successfully rolled back the broken transaction')
+        logging.info('Previous transaction has been restored')
     yield
 
 
@@ -41,21 +48,37 @@ async def transact(value: int = 0):
     conn = await asyncpg.connect(dsn=settings.database_dsn)
     logging.info('DB connected')
 
-    transaction_data_file = open(settings.transaction_data_file_path, 'w')
+    log_file = open(settings.transaction_data_file_path, 'w')
+    current_decr_value_query = '''
+        SELECT value
+            FROM public.decreasing;
+        '''
+    current_decr_value = await conn.fetchval(current_decr_value_query)
+
+    current_incr_value_query = '''
+        SELECT value
+            FROM public.increasing;
+        '''
+    current_incr_value = await conn.fetchval(current_incr_value_query)
+
+    expected_decr_value = current_decr_value - value
+    expected_incr_value = current_incr_value + value
+    
+    with open(settings.transaction_data_file_path, 'w') as log_file:
+        log_file.write(f'1:{expected_decr_value}')
 
     decr_query = '''
         UPDATE public.decreasing
-            SET value=value-$1;
+            SET value=$1;
         '''
     logging.info(f'Got value {value}')
-    logging.info(f'Write value {value} to the transaction data file')
-    transaction_data_file.write(f'{value}')
-    transaction_data_file.close()
-    logging.info(f'Successfully registered value {value} in the transaction data file')
 
     logging.info('Decreasing started')
-    await conn.execute(decr_query, int(value))
+    await conn.execute(decr_query, expected_decr_value)
     logging.info('Decreasing finished')
+
+    with open(settings.transaction_data_file_path, 'w') as log_file:
+        log_file.write(f'2:{expected_incr_value}')
 
     logging.info('Sleep...')
     await asyncio.sleep(5)
@@ -63,13 +86,14 @@ async def transact(value: int = 0):
 
     incr_query = '''
         UPDATE public.increasing
-            SET value=value+$1;
+            SET value=$1;
         '''
 
     logging.info('Increasing started')
-    await conn.execute(incr_query, int(value))
+    await conn.execute(incr_query, expected_incr_value)
     logging.info('Increasing finished')
     logging.info('Removing transaction data file since the transaction has been successfully finished')
+    log_file.close()
     os.remove(settings.transaction_data_file_path)
 
     await conn.close()
